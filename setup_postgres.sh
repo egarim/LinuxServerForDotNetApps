@@ -289,7 +289,18 @@ echo "Checking PostgreSQL service status..."
 run_command "sudo systemctl status postgresql --no-pager"
 
 echo "Checking if PostgreSQL is listening on port 5432..."
-run_command "sudo netstat -tlnp | grep 5432"
+# Use ss command (modern replacement for netstat) or fallback to lsof
+if command -v ss >/dev/null 2>&1; then
+    run_command "sudo ss -tlnp | grep 5432"
+elif command -v lsof >/dev/null 2>&1; then
+    run_command "sudo lsof -i :5432"
+elif command -v netstat >/dev/null 2>&1; then
+    run_command "sudo netstat -tlnp | grep 5432"
+else
+    echo -e "${YELLOW}Installing net-tools to check port status...${NC}"
+    run_command "sudo apt install -y net-tools"
+    run_command "sudo netstat -tlnp | grep 5432"
+fi
 
 # Step 13: Test local connection
 print_step "Step 13: Testing local connection"
