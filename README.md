@@ -48,3 +48,19 @@ setup an email to get notifications
 
 ![All done](8.png)
 Finish the configuration
+
+
+![Password storage](9.png)
+Store plain text
+
+![MariaDB database size](10.png)
+Keep default
+
+
+![SSL key directory](10.png)
+Per domain
+
+
+
+![complete](11.png)
+Done
