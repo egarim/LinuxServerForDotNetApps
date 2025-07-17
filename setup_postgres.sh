@@ -302,27 +302,8 @@ else
     run_command "sudo netstat -tlnp | grep 5432"
 fi
 
-# Step 13: Test local connection
-print_step "Step 13: Testing local connection"
-
-echo "Testing local connection with password authentication..."
-echo "You'll be prompted for the postgres user password."
-echo -e "${YELLOW}Command to be executed:${NC}"
-echo "psql -h 127.0.0.1 -U postgres -d postgres -c \"SELECT version();\""
-echo
-
-if confirm "Test local connection now?"; then
-    echo "Enter the postgres password when prompted:"
-    psql -h 127.0.0.1 -U postgres -d postgres -c "SELECT version();"
-    if [ $? -eq 0 ]; then
-        print_success "Local connection test successful"
-    else
-        print_error "Local connection test failed"
-    fi
-fi
-
-# Step 14: Get server IP for remote testing
-print_step "Step 14: Remote connection information"
+# Step 13: Get server IP for remote connection
+print_step "Step 13: Remote connection information"
 
 echo "Getting server IP address..."
 SERVER_IP=$(curl -s ifconfig.me)

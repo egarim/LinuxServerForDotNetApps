@@ -1,77 +1,87 @@
-# LinuxServerForDotNetApps
-scripts to setup an ubuntu linux server to run dotnet apps
+# Linux Server For .NET Applications
 
+A collection of scripts to set up an Ubuntu Linux server optimized for running .NET applications.
 
-Install progress with external access
+## PostgreSQL Setup
 
-# Download the script
-wget https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/setup_postgres.sh?token=GHSAT0AAAAAAC56EANKOKGRL4KNMSNSG45E2DX66JA -O setup_postgres.sh
+Use either of the following commands to install and configure PostgreSQL on your server:
 
-# Make it executable
-chmod +x setup_postgres.sh
+### Using curl
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/setup_postgres.sh)"
+```
 
-# Run the script
-./setup_postgres.sh
+### Using wget
+```bash
+sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/setup_postgres.sh)"
+```
 
-## or a single line
+## Virtualmin for Webhosting
 
-# curl
-sudo bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/setup_postgres.sh?token=GHSAT0AAAAAAC56EANKOKGRL4KNMSNSG45E2DX66JA')"
+Install Virtualmin with LAMP bundle using the following command:
 
-# wget
-sudo bash -c "$(wget -qO- 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/setup_postgres.sh?token=GHSAT0AAAAAAC56EANKOKGRL4KNMSNSG45E2DX66JA')"
-
-
-# Virtualmin for webhosting
-
+```bash
 sudo sh -c "$(curl -fsSL https://software.virtualmin.com/gpl/scripts/virtualmin-install.sh)" -- --bundle LAMP
+```
 
-![Server Setup](1.png)
+### Installation Steps
 
+1. **Server Setup**  
+   ![Server Setup](1.png)
 
-![Run email domain lookup server ](2.png)
+2. **Email Domain Lookup Server**  
+   ![Run email domain lookup server](2.png)
 
+3. **Virus Scanning**  
+   Enable virus scanning with ClamAV  
+   ![Enable virus scanning with ClamAV](3.png)
 
-![Enable virus scanning with ClamAV](3.png)
+4. **Database Servers**  
+   Select both PostgreSQL and MariaDB  
+   ![Database servers](4.png)
 
-![Database servers](4.png)
-Select both postgress and MariaDb
+5. **MariaDB Password**  
+   Set a secure password  
+   ![MariaDB password](5.png)
 
-![MariaDB password](5.png)
-Set a password
+6. **DNS Configuration**  
+   Skip this step  
+   ![DNS configuration](6.png)
 
-![DNS configuration](6.png)
-Skip
+7. **System Email Address**  
+   Set up an email address to receive notifications  
+   ![System email address](7.png)
 
-![System email address](7.png)
-setup an email to get notifications
+8. **Complete Setup**  
+   Finish the configuration  
+   ![All done](8.png)
 
-![All done](8.png)
-Finish the configuration
+9. **Password Storage**  
+   Choose to store passwords in plain text  
+   ![Password storage](9.png)
 
+10. **MariaDB Database Size**  
+    Keep default settings  
+    ![MariaDB database size](10.png)
 
-![Password storage](9.png)
-Store plain text
+11. **SSL Key Directory**  
+    Select "Per domain" option  
+    ![SSL key directory](12.png)
 
-![MariaDB database size](10.png)
-Keep default
+12. **Installation Complete**  
+    Setup is now complete  
+    ![complete](11.png)
 
+## Remote MySQL/MariaDB Access
 
-![SSL key directory](10.png)
-Per domain
+Configure your MySQL/MariaDB server for remote access using one of the following methods:
 
+### Using curl
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/mysqlremoteaccess.sh)"
+```
 
-
-![complete](11.png)
-Done
-
-
-# remote mysql/mariadb access
-
-curl
-
-sudo bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/mysqlremoteaccess.sh?token=GHSAT0AAAAAAC56EANKLUVZDHO5PWMCOLMI2DZCMDA')"
-
-wget
-
-sudo bash -c "$(wget -qO- 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/mysqlremoteaccess.sh?token=GHSAT0AAAAAAC56EANKLUVZDHO5PWMCOLMI2DZCMDA')"
+### Using wget
+```bash
+sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/mysqlremoteaccess.sh)"
+```
