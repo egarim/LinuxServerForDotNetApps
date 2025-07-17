@@ -64,3 +64,14 @@ Per domain
 
 ![complete](11.png)
 Done
+
+
+# remote mysql/mariadb access
+
+curl
+
+sudo bash -c "$(curl -fsSL 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/mysqlremoteaccess.sh?token=GHSAT0AAAAAAC56EANKLUVZDHO5PWMCOLMI2DZCMDA')"
+
+wget
+
+sudo bash -c "$(wget -qO- 'https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/refs/heads/main/mysqlremoteaccess.sh?token=GHSAT0AAAAAAC56EANKLUVZDHO5PWMCOLMI2DZCMDA')"
