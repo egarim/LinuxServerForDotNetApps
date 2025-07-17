@@ -62,6 +62,16 @@ fi
 
 print_status "MySQL connection successful!"
 
+# Check current user configuration
+print_status "Checking current user configuration..."
+CURRENT_USERS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
+print_status "Current root users:"
+echo "$CURRENT_USERS"
+
+# Check if root@'%' already exists
+ROOT_REMOTE_EXISTS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) as count FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
+print_status "Root user with remote access (%) exists: $([[ $ROOT_REMOTE_EXISTS -gt 0 ]] && echo "YES" || echo "NO")"
+
 # Find the correct configuration file
 print_status "Locating MySQL configuration file..."
 CONFIG_FILE=""
@@ -93,82 +103,90 @@ fi
 print_status "Backing up MySQL configuration..."
 cp "$CONFIG_FILE" "${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
 
-# Configure MySQL to listen on all interfaces
-print_status "Configuring MySQL to listen on all interfaces..."
+# Check current bind-address
+CURRENT_BIND=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT @@bind_address;" -s -N 2>/dev/null)
+print_status "Current bind address: $CURRENT_BIND"
 
-# For MariaDB, we need to handle this differently
-if [[ "$MYSQL_VERSION" == *"MariaDB"* ]]; then
-    print_status "Configuring MariaDB..."
+# Configure MySQL to listen on all interfaces if not already set
+if [[ "$CURRENT_BIND" != "0.0.0.0" ]]; then
+    print_status "Configuring MySQL to listen on all interfaces..."
     
-    # Remove existing bind-address lines
-    sed -i '/^bind-address/d' "$CONFIG_FILE"
-    sed -i '/^#bind-address/d' "$CONFIG_FILE"
-    
-    # Add bind-address under [mysqld] section
-    if grep -q "^\[mysqld\]" "$CONFIG_FILE"; then
-        sed -i '/^\[mysqld\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
-    elif grep -q "^\[mariadb\]" "$CONFIG_FILE"; then
-        sed -i '/^\[mariadb\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
+    # For MariaDB, we need to handle this differently
+    if [[ "$MYSQL_VERSION" == *"MariaDB"* ]]; then
+        print_status "Configuring MariaDB..."
+        
+        # Remove existing bind-address lines
+        sed -i '/^bind-address/d' "$CONFIG_FILE"
+        sed -i '/^#bind-address/d' "$CONFIG_FILE"
+        
+        # Add bind-address under [mysqld] section
+        if grep -q "^\[mysqld\]" "$CONFIG_FILE"; then
+            sed -i '/^\[mysqld\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
+        elif grep -q "^\[mariadb\]" "$CONFIG_FILE"; then
+            sed -i '/^\[mariadb\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
+        else
+            echo -e "\n[mysqld]\nbind-address = 0.0.0.0" >> "$CONFIG_FILE"
+        fi
+        
+        # Remove skip-networking if present
+        sed -i '/^skip-networking/d' "$CONFIG_FILE"
+        sed -i 's/^#skip-networking/#skip-networking/' "$CONFIG_FILE"
+        
     else
-        echo -e "\n[mysqld]\nbind-address = 0.0.0.0" >> "$CONFIG_FILE"
+        print_status "Configuring MySQL..."
+        
+        # Remove existing bind-address lines
+        sed -i '/^bind-address/d' "$CONFIG_FILE"
+        sed -i '/^mysqlx-bind-address/d' "$CONFIG_FILE"
+        
+        # Add bind-address under [mysqld] section
+        if grep -q "^\[mysqld\]" "$CONFIG_FILE"; then
+            sed -i '/^\[mysqld\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
+        else
+            echo -e "\n[mysqld]\nbind-address = 0.0.0.0" >> "$CONFIG_FILE"
+        fi
     fi
-    
-    # Remove skip-networking if present
-    sed -i '/^skip-networking/d' "$CONFIG_FILE"
-    sed -i 's/^#skip-networking/#skip-networking/' "$CONFIG_FILE"
-    
-else
-    print_status "Configuring MySQL..."
-    
-    # Remove existing bind-address lines
-    sed -i '/^bind-address/d' "$CONFIG_FILE"
-    sed -i '/^mysqlx-bind-address/d' "$CONFIG_FILE"
-    
-    # Add bind-address under [mysqld] section
-    if grep -q "^\[mysqld\]" "$CONFIG_FILE"; then
-        sed -i '/^\[mysqld\]/a bind-address = 0.0.0.0' "$CONFIG_FILE"
+
+    # Show what was configured
+    print_status "Configuration applied:"
+    grep -A 5 -B 5 "bind-address" "$CONFIG_FILE" || echo "bind-address not found in config"
+
+    # Restart MySQL service
+    print_status "Restarting MySQL/MariaDB service..."
+    if systemctl is-active --quiet mysql; then
+        systemctl restart mysql
+        SERVICE_NAME="mysql"
+    elif systemctl is-active --quiet mariadb; then
+        systemctl restart mariadb
+        SERVICE_NAME="mariadb"
     else
-        echo -e "\n[mysqld]\nbind-address = 0.0.0.0" >> "$CONFIG_FILE"
+        print_error "Could not determine MySQL service name"
+        exit 1
     fi
-fi
 
-# Show what was configured
-print_status "Configuration applied:"
-grep -A 5 -B 5 "bind-address" "$CONFIG_FILE" || echo "bind-address not found in config"
+    # Wait for MySQL to be ready
+    print_status "Waiting for MySQL to be ready..."
+    sleep 3
 
-# Install net-tools if netstat is needed (but we'll use ss instead)
-if ! command -v ss > /dev/null 2>&1; then
-    print_status "Installing net-tools for network diagnostics..."
-    apt-get update -qq
-    apt-get install -y net-tools
-fi
-
-# Restart MySQL service
-print_status "Restarting MySQL/MariaDB service..."
-if systemctl is-active --quiet mysql; then
-    systemctl restart mysql
-    SERVICE_NAME="mysql"
-elif systemctl is-active --quiet mariadb; then
-    systemctl restart mariadb
-    SERVICE_NAME="mariadb"
+    # Test if MySQL is running and accessible
+    for i in {1..10}; do
+        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+            print_status "MySQL is responding (attempt $i)"
+            break
+        fi
+        print_status "Waiting for MySQL to start... (attempt $i/10)"
+        sleep 2
+    done
 else
-    print_error "Could not determine MySQL service name"
-    exit 1
-fi
-
-# Wait for MySQL to be ready
-print_status "Waiting for MySQL to be ready..."
-sleep 3
-
-# Test if MySQL is running and accessible
-for i in {1..10}; do
-    if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
-        print_status "MySQL is responding (attempt $i)"
-        break
+    print_status "MySQL is already configured to listen on all interfaces"
+    if systemctl is-active --quiet mysql; then
+        SERVICE_NAME="mysql"
+    elif systemctl is-active --quiet mariadb; then
+        SERVICE_NAME="mariadb"
+    else
+        SERVICE_NAME="mysql"
     fi
-    print_status "Waiting for MySQL to start... (attempt $i/10)"
-    sleep 2
-done
+fi
 
 # Check if MySQL is listening on all interfaces
 print_status "Checking if MySQL is listening on all interfaces..."
@@ -186,23 +204,75 @@ if command -v ss > /dev/null 2>&1; then
         print_status "All listening ports:"
         ss -tuln
     fi
-elif command -v netstat > /dev/null 2>&1; then
-    MYSQL_LISTENING=$(netstat -tuln | grep ":3306" || echo "not found")
-    print_status "MySQL listening status: $MYSQL_LISTENING"
 else
-    print_warning "Neither ss nor netstat available, skipping port check"
+    print_warning "ss command not available, skipping port check"
 fi
 
 # Configure MySQL user permissions
 print_status "Configuring MySQL root user for remote access..."
-mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+
+# Handle MariaDB and MySQL differently for user management
+if [[ "$MYSQL_VERSION" == *"MariaDB"* ]]; then
+    print_status "Configuring MariaDB users..."
+    
+    # Create a temporary SQL file for better error handling
+    cat > /tmp/mariadb_config.sql << EOF
+-- Show current configuration
+SELECT @@bind_address as 'Current Bind Address';
+
+-- Show current users before changes
+SELECT 'Current Users:' as Info;
+SELECT User, Host FROM mysql.user WHERE User='root';
+
+-- Remove anonymous users
+DELETE FROM mysql.user WHERE User='';
+
+-- Handle root@'%' user creation/update
+SET @user_exists = (SELECT COUNT(*) FROM mysql.user WHERE User='root' AND Host='%');
+SELECT @user_exists as 'Remote Root User Exists';
+
+-- Drop existing root@'%' if it exists to recreate with proper permissions
+DROP USER IF EXISTS 'root'@'%';
+
+-- Create root user that can connect from any host
+CREATE USER 'root'@'%' IDENTIFIED BY '$MYSQL_ROOT_PASSWORD';
+
+-- Grant all privileges to root@%
+GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;
+
+-- Flush privileges to apply changes
+FLUSH PRIVILEGES;
+
+-- Show users after changes
+SELECT 'Users After Configuration:' as Info;
+SELECT User, Host FROM mysql.user WHERE User='root';
+
+-- Verify the new user can be used
+SELECT 'Configuration Verification:' as Info;
+SELECT User(), Current_User(), @@hostname as 'Server Host';
+EOF
+
+    # Execute the SQL file
+    if mysql -u root -p"$MYSQL_ROOT_PASSWORD" < /tmp/mariadb_config.sql; then
+        print_status "✓ MariaDB user configuration completed successfully"
+    else
+        print_error "Failed to configure MariaDB users"
+        print_status "You may need to configure manually"
+    fi
+    
+    # Clean up
+    rm -f /tmp/mariadb_config.sql
+    
+else
+    print_status "Configuring MySQL users..."
+    mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
 -- Show current configuration
 SELECT @@bind_address as bind_address;
 
 -- Remove anonymous users
 DELETE FROM mysql.user WHERE User='';
 
--- Remove remote root capabilities (we'll add specific ones)
+-- Remove existing remote root users
 DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
 
 -- Create root user that can connect from any host
@@ -217,6 +287,7 @@ FLUSH PRIVILEGES;
 -- Show current root users
 SELECT User, Host FROM mysql.user WHERE User='root';
 EOF
+fi
 
 # Configure UFW firewall
 print_status "Configuring UFW firewall to allow MySQL connections..."
@@ -246,29 +317,36 @@ else
     print_status "iptables rule already exists for MySQL"
 fi
 
-# Show current iptables rules for port 3306
-print_status "Current iptables rules for port 3306:"
-iptables -L INPUT -n | grep 3306 || echo "No specific rules found"
-
 # Test the configuration locally
-print_status "Testing local connection to 127.0.0.1..."
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h 127.0.0.1 -e "SELECT 'Local connection successful' as Status;" 2>/dev/null; then
-    print_status "✓ Local connection test successful!"
+print_status "Testing local connections..."
+
+# Test localhost connection
+if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h localhost -e "SELECT 'Localhost connection successful' as Status;" 2>/dev/null; then
+    print_status "✓ Localhost connection successful"
 else
-    print_error "✗ Local connection test failed"
+    print_warning "✗ Localhost connection failed"
 fi
 
-# Test connection to 0.0.0.0 (if possible)
-print_status "Testing connection to 0.0.0.0..."
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h 0.0.0.0 -e "SELECT 'Connection successful' as Status;" 2>/dev/null; then
-    print_status "✓ Connection to 0.0.0.0 successful!"
+# Test 127.0.0.1 connection
+if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h 127.0.0.1 -e "SELECT 'Local IP connection successful' as Status;" 2>/dev/null; then
+    print_status "✓ Local IP (127.0.0.1) connection successful"
 else
-    print_warning "✗ Connection to 0.0.0.0 failed (this might be normal)"
+    print_warning "✗ Local IP connection failed"
 fi
 
-# Show MySQL process information
-print_status "MySQL process information:"
-ps aux | grep -E "(mysql|mariadb)" | grep -v grep
+# Test server IP connection
+SERVER_IP=$(hostname -I | awk '{print $1}')
+if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h "$SERVER_IP" -e "SELECT 'Server IP connection successful' as Status;" 2>/dev/null; then
+    print_status "✓ Server IP ($SERVER_IP) connection successful"
+else
+    print_warning "✗ Server IP connection failed - this may indicate a firewall issue"
+fi
+
+# Final verification of user configuration
+print_status "Final user configuration verification..."
+FINAL_USERS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
+print_status "Final root users configuration:"
+echo "$FINAL_USERS"
 
 # Display connection information
 print_status "Configuration completed!"
@@ -276,25 +354,31 @@ echo
 echo "=============================================="
 echo "MySQL Remote Access Information:"
 echo "=============================================="
-echo "Host: $(hostname -I | awk '{print $1}')"
+echo "Host: $SERVER_IP"
 echo "Port: 3306"
 echo "Username: root"
 echo "Password: [The password you entered]"
 echo
 echo "Connection examples:"
-echo "  mysql -u root -p -h $(hostname -I | awk '{print $1}')"
-echo "  mysql://root:password@$(hostname -I | awk '{print $1}'):3306/"
+echo "  mysql -u root -p -h $SERVER_IP"
+echo "  mysql://root:password@$SERVER_IP:3306/"
 echo
 echo "Configuration file: $CONFIG_FILE"
 echo "Service name: $SERVICE_NAME"
 echo
 
-# Final diagnostic information
-print_status "Diagnostic Information:"
-echo "- MySQL/MariaDB version: $(mysql --version)"
-echo "- Configuration file: $CONFIG_FILE"
-echo "- Service status: $(systemctl is-active $SERVICE_NAME)"
-echo "- Listening ports: $(ss -tuln | grep :3306 || echo 'none found')"
+# Check if root@'%' user exists
+ROOT_REMOTE_FINAL=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
+if [[ $ROOT_REMOTE_FINAL -gt 0 ]]; then
+    print_status "✓ Remote root user (root@'%') has been created successfully"
+else
+    print_error "✗ Remote root user was not created - you may need to create it manually"
+    print_status "Manual commands:"
+    echo "  mysql -u root -p"
+    echo "  CREATE USER 'root'@'%' IDENTIFIED BY 'your_password';"
+    echo "  GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;"
+    echo "  FLUSH PRIVILEGES;"
+fi
 
 print_warning "Security Reminders:"
 echo "- Root access from any host is a security risk"
@@ -304,8 +388,9 @@ echo "- Monitor MySQL logs for suspicious activity"
 echo "- Consider using SSL/TLS for MySQL connections"
 
 print_status "If you still can't connect remotely, check:"
-echo "1. Your hosting provider's firewall settings"
-echo "2. Any additional security groups or network ACLs"
+echo "1. Your hosting provider's firewall/security groups"
+echo "2. Any additional network ACLs or cloud firewalls"
 echo "3. The MySQL error log: /var/log/mysql/error.log"
+echo "4. Try: telnet $SERVER_IP 3306 (from external machine)"
 
-print_status "Script completed!"
+print_status "Script completed successfully!"
