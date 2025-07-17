@@ -39,9 +39,31 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     exit 0
 fi
 
-# Prompt for MySQL root password
+# Prompt for MySQL root password ONCE
 read -s -p "Enter MySQL root password: " MYSQL_ROOT_PASSWORD
 echo
+
+# Create MySQL client configuration file to avoid repeated password prompts
+MYSQL_CONFIG_FILE="/tmp/mysql_client_config.cnf"
+cat > "$MYSQL_CONFIG_FILE" << EOF
+[client]
+user=root
+password=$MYSQL_ROOT_PASSWORD
+EOF
+
+# Function to run MySQL commands without password prompt
+run_mysql() {
+    mysql --defaults-file="$MYSQL_CONFIG_FILE" "$@"
+}
+
+# Function to cleanup temp files
+cleanup() {
+    rm -f "$MYSQL_CONFIG_FILE"
+    rm -f /tmp/mariadb_config.sql
+}
+
+# Setup cleanup on exit
+trap cleanup EXIT
 
 # Detect MySQL/MariaDB installation
 print_status "Detecting MySQL/MariaDB installation..."
@@ -55,7 +77,7 @@ fi
 
 # Test MySQL connection
 print_status "Testing MySQL connection..."
-if ! mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+if ! run_mysql -e "SELECT 1;" > /dev/null 2>&1; then
     print_error "Cannot connect to MySQL with provided credentials"
     exit 1
 fi
@@ -64,12 +86,12 @@ print_status "MySQL connection successful!"
 
 # Check current user configuration
 print_status "Checking current user configuration..."
-CURRENT_USERS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
+CURRENT_USERS=$(run_mysql -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
 print_status "Current root users:"
 echo "$CURRENT_USERS"
 
 # Check if root@'%' already exists
-ROOT_REMOTE_EXISTS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) as count FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
+ROOT_REMOTE_EXISTS=$(run_mysql -e "SELECT COUNT(*) as count FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
 print_status "Root user with remote access (%) exists: $([[ $ROOT_REMOTE_EXISTS -gt 0 ]] && echo "YES" || echo "NO")"
 
 # Find the correct configuration file
@@ -104,7 +126,7 @@ print_status "Backing up MySQL configuration..."
 cp "$CONFIG_FILE" "${CONFIG_FILE}.backup.$(date +%Y%m%d_%H%M%S)"
 
 # Check current bind-address
-CURRENT_BIND=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT @@bind_address;" -s -N 2>/dev/null)
+CURRENT_BIND=$(run_mysql -e "SELECT @@bind_address;" -s -N 2>/dev/null)
 print_status "Current bind address: $CURRENT_BIND"
 
 # Configure MySQL to listen on all interfaces if not already set
@@ -170,7 +192,7 @@ if [[ "$CURRENT_BIND" != "0.0.0.0" ]]; then
 
     # Test if MySQL is running and accessible
     for i in {1..10}; do
-        if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT 1;" > /dev/null 2>&1; then
+        if run_mysql -e "SELECT 1;" > /dev/null 2>&1; then
             print_status "MySQL is responding (attempt $i)"
             break
         fi
@@ -246,26 +268,19 @@ FLUSH PRIVILEGES;
 -- Show users after changes
 SELECT 'Users After Configuration:' as Info;
 SELECT User, Host FROM mysql.user WHERE User='root';
-
--- Verify the new user can be used
-SELECT 'Configuration Verification:' as Info;
-SELECT User(), Current_User(), @@hostname as 'Server Host';
 EOF
 
     # Execute the SQL file
-    if mysql -u root -p"$MYSQL_ROOT_PASSWORD" < /tmp/mariadb_config.sql; then
+    if run_mysql < /tmp/mariadb_config.sql; then
         print_status "✓ MariaDB user configuration completed successfully"
     else
         print_error "Failed to configure MariaDB users"
         print_status "You may need to configure manually"
     fi
     
-    # Clean up
-    rm -f /tmp/mariadb_config.sql
-    
 else
     print_status "Configuring MySQL users..."
-    mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF
+    run_mysql <<EOF
 -- Show current configuration
 SELECT @@bind_address as bind_address;
 
@@ -289,11 +304,50 @@ SELECT User, Host FROM mysql.user WHERE User='root';
 EOF
 fi
 
-# Configure UFW firewall
-print_status "Configuring UFW firewall to allow MySQL connections..."
+# Configure Firewall - Check what firewall system is active
+print_status "Configuring firewall to allow MySQL connections..."
 
-# Check if UFW is installed and active
-if command -v ufw > /dev/null 2>&1; then
+# Check firewall systems
+FIREWALLD_ACTIVE=$(systemctl is-active firewalld 2>/dev/null || echo "inactive")
+UFW_ACTIVE=$(systemctl is-active ufw 2>/dev/null || echo "inactive")
+
+if [[ "$FIREWALLD_ACTIVE" == "active" ]]; then
+    print_status "Configuring firewalld..."
+    
+    # Show current firewalld configuration
+    print_status "Current firewalld configuration:"
+    firewall-cmd --list-all
+    
+    # Add MySQL service
+    print_status "Adding MySQL service to firewalld..."
+    firewall-cmd --permanent --add-service=mysql || true
+    
+    # Add MySQL port directly (backup method)
+    print_status "Adding MySQL port 3306 to firewalld..."
+    firewall-cmd --permanent --add-port=3306/tcp || true
+    
+    # Add rich rule for MySQL (comprehensive method)
+    print_status "Adding rich rule for MySQL..."
+    firewall-cmd --permanent --add-rich-rule='rule family="ipv4" port protocol="tcp" port="3306" accept' || true
+    
+    # Reload firewalld to apply changes
+    print_status "Reloading firewalld configuration..."
+    firewall-cmd --reload
+    
+    # Show final firewalld configuration
+    print_status "Final firewalld configuration:"
+    firewall-cmd --list-all
+    
+elif [[ "$UFW_ACTIVE" == "active" ]] || command -v ufw > /dev/null 2>&1; then
+    print_status "Configuring UFW firewall..."
+    
+    # Install UFW if not present
+    if ! command -v ufw > /dev/null 2>&1; then
+        print_status "Installing UFW..."
+        apt-get update -qq
+        apt-get install -y ufw
+    fi
+    
     # Enable UFW if not already enabled
     ufw --force enable
     
@@ -303,32 +357,35 @@ if command -v ufw > /dev/null 2>&1; then
     # Show UFW status
     print_status "UFW firewall rules:"
     ufw status numbered
+    
 else
-    print_warning "UFW is not installed."
-fi
-
-# Also configure iptables directly
-print_status "Configuring iptables for MySQL access..."
-# Check if rule already exists
-if ! iptables -C INPUT -p tcp --dport 3306 -j ACCEPT 2>/dev/null; then
-    iptables -I INPUT -p tcp --dport 3306 -j ACCEPT
-    print_status "Added iptables rule for MySQL"
-else
-    print_status "iptables rule already exists for MySQL"
+    print_status "Configuring iptables directly..."
+    
+    # Check if rule already exists
+    if ! iptables -C INPUT -p tcp --dport 3306 -j ACCEPT 2>/dev/null; then
+        iptables -I INPUT -p tcp --dport 3306 -j ACCEPT
+        print_status "Added iptables rule for MySQL"
+    else
+        print_status "iptables rule already exists for MySQL"
+    fi
+    
+    # Show current iptables rules for port 3306
+    print_status "Current iptables rules for port 3306:"
+    iptables -L INPUT -n | grep 3306 || echo "No specific rules found"
 fi
 
 # Test the configuration locally
 print_status "Testing local connections..."
 
 # Test localhost connection
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h localhost -e "SELECT 'Localhost connection successful' as Status;" 2>/dev/null; then
+if run_mysql -h localhost -e "SELECT 'Localhost connection successful' as Status;" 2>/dev/null; then
     print_status "✓ Localhost connection successful"
 else
     print_warning "✗ Localhost connection failed"
 fi
 
 # Test 127.0.0.1 connection
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h 127.0.0.1 -e "SELECT 'Local IP connection successful' as Status;" 2>/dev/null; then
+if run_mysql -h 127.0.0.1 -e "SELECT 'Local IP connection successful' as Status;" 2>/dev/null; then
     print_status "✓ Local IP (127.0.0.1) connection successful"
 else
     print_warning "✗ Local IP connection failed"
@@ -336,15 +393,23 @@ fi
 
 # Test server IP connection
 SERVER_IP=$(hostname -I | awk '{print $1}')
-if mysql -u root -p"$MYSQL_ROOT_PASSWORD" -h "$SERVER_IP" -e "SELECT 'Server IP connection successful' as Status;" 2>/dev/null; then
+if run_mysql -h "$SERVER_IP" -e "SELECT 'Server IP connection successful' as Status;" 2>/dev/null; then
     print_status "✓ Server IP ($SERVER_IP) connection successful"
 else
     print_warning "✗ Server IP connection failed - this may indicate a firewall issue"
 fi
 
+# Test external connectivity
+print_status "Testing external port connectivity..."
+if timeout 5 bash -c "</dev/tcp/$SERVER_IP/3306" 2>/dev/null; then
+    print_status "✓ Port 3306 is externally accessible"
+else
+    print_warning "✗ Port 3306 may not be externally accessible"
+fi
+
 # Final verification of user configuration
 print_status "Final user configuration verification..."
-FINAL_USERS=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
+FINAL_USERS=$(run_mysql -e "SELECT User, Host FROM mysql.user WHERE User='root';" 2>/dev/null)
 print_status "Final root users configuration:"
 echo "$FINAL_USERS"
 
@@ -365,10 +430,11 @@ echo "  mysql://root:password@$SERVER_IP:3306/"
 echo
 echo "Configuration file: $CONFIG_FILE"
 echo "Service name: $SERVICE_NAME"
+echo "Firewall: $([[ $FIREWALLD_ACTIVE == "active" ]] && echo "firewalld" || [[ $UFW_ACTIVE == "active" ]] && echo "ufw" || echo "iptables")"
 echo
 
 # Check if root@'%' user exists
-ROOT_REMOTE_FINAL=$(mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT COUNT(*) FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
+ROOT_REMOTE_FINAL=$(run_mysql -e "SELECT COUNT(*) FROM mysql.user WHERE User='root' AND Host='%';" -s -N 2>/dev/null)
 if [[ $ROOT_REMOTE_FINAL -gt 0 ]]; then
     print_status "✓ Remote root user (root@'%') has been created successfully"
 else
@@ -387,10 +453,9 @@ echo "- Use strong passwords and consider IP restrictions"
 echo "- Monitor MySQL logs for suspicious activity"
 echo "- Consider using SSL/TLS for MySQL connections"
 
-print_status "If you still can't connect remotely, check:"
-echo "1. Your hosting provider's firewall/security groups"
-echo "2. Any additional network ACLs or cloud firewalls"
-echo "3. The MySQL error log: /var/log/mysql/error.log"
-echo "4. Try: telnet $SERVER_IP 3306 (from external machine)"
+print_status "Testing remote connection..."
+echo "You can now test the remote connection from another machine using:"
+echo "  mysql -u root -p -h $SERVER_IP"
+echo "  telnet $SERVER_IP 3306"
 
 print_status "Script completed successfully!"
