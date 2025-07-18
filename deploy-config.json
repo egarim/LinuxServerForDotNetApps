@@ -1,0 +1,11 @@
+{
+  "LocalDirectory": "./publish",
+  "ServerHost": "newserver25.jocheojeda.com",
+  "Username": "root",
+  "ServiceName": "TestLinuxDeploy",
+  "ExecutablePath": "TestLinuxDeploy",
+  "RemoteDirectory": "/home/newserver25/app",
+  "ServiceDescription": "TestLinuxDeploy",
+  "ServiceUser": "root",
+  "UsePassword": true
+}
