@@ -85,3 +85,17 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/egarim/LinuxServerF
 ```bash
 sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/mysqlremoteaccess.sh)"
 ```
+
+## Install libgdiplus for .NET Applications
+
+Install the libgdiplus library which is required by System.Drawing in .NET applications:
+
+### Using curl
+```bash
+sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/install_libgdiplus.sh)"
+```
+
+### Using wget
+```bash
+sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/install_libgdiplus.sh)"
+```
