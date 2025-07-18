@@ -168,16 +168,14 @@ Create a `deploy-config.json` file in the same directory as the deployment scrip
 | `RemoteDirectory` | string | ❌ | Target directory on remote server | `"/opt/myapp"`, `"/home/user/apps/myapp"` |
 | `ServiceDescription` | string | ❌ | Description shown in systemd | `"My Web API Service"` |
 | `ServiceUser` | string | ❌ | User account to run the service | `"root"`, `"www-data"`, `"myapp"` |
-| `UsePassword` | boolean | ❌ | Whether to use password auth (PowerShell only) | `true`, `false` |
 
 ### Default Values
 
 - `RemoteDirectory`: `/opt/{ServiceName}`
 - `ServiceDescription`: `"Auto-deployed service"`
 - `ServiceUser`: `"root"`
-- `UsePassword`: `false`
 
-### Configuration Examples
+### Configuration Example
 
 #### .NET Application
 ```json
@@ -190,34 +188,6 @@ Create a `deploy-config.json` file in the same directory as the deployment scrip
   "RemoteDirectory": "/opt/mywebapi",
   "ServiceDescription": "My Company Web API",
   "ServiceUser": "www-data"
-}
-```
-
-#### Node.js Application
-```json
-{
-  "LocalDirectory": "./dist",
-  "ServerHost": "192.168.1.100",
-  "Username": "ubuntu",
-  "ServiceName": "nodeapp",
-  "ExecutablePath": "server.js",
-  "RemoteDirectory": "/home/ubuntu/nodeapp",
-  "ServiceDescription": "Node.js Application Server",
-  "ServiceUser": "ubuntu"
-}
-```
-
-#### Python Application
-```json
-{
-  "LocalDirectory": "./app",
-  "ServerHost": "python.example.com",
-  "Username": "root",
-  "ServiceName": "python-worker",
-  "ExecutablePath": "start.sh",
-  "RemoteDirectory": "/opt/python-worker",
-  "ServiceDescription": "Python Background Worker",
-  "ServiceUser": "worker"
 }
 ```
 
