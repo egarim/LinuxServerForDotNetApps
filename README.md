@@ -86,6 +86,14 @@ sudo bash -c "$(curl -fsSL https://raw.githubusercontent.com/egarim/LinuxServerF
 sudo bash -c "$(wget -qO- https://raw.githubusercontent.com/egarim/LinuxServerForDotNetApps/main/mysqlremoteaccess.sh)"
 ```
 
+
+## Remote Postgres Access (run this after finishing installing virtualmin)
+
+```bash
+sudo firewall-cmd --add-port=5432/tcp --permanent
+sudo firewall-cmd --reload
+```
+
 ## Install libgdiplus for .NET Applications
 
 Install the libgdiplus library which is required by System.Drawing in .NET applications:
