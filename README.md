@@ -66,11 +66,11 @@ sudo sh -c "$(curl -fsSL https://software.virtualmin.com/gpl/scripts/virtualmin-
 
 11. **SSL Key Directory**  
     Select "Per domain" option  
-    ![SSL key directory](12.png)
-
+    ![complete](11.png)
 12. **Installation Complete**  
     Setup is now complete  
-    ![complete](11.png)
+   ![SSL key directory](12.png)
+
 
 ## Remote MySQL/MariaDB Access
 
